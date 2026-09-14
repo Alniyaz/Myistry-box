@@ -1,11 +1,16 @@
 # Background music
 
-The game plays these included original instrumental tracks automatically:
+Every supported audio file in this folder is discovered and played automatically. You do **not** need to add song names to `index.html`.
 
-- `track-1.wav`
-- `track-2.wav`
-- `track-3.wav`
+Supported file types:
 
-To use your own songs, upload MP3, WAV, or OGG files to this folder and add their paths to `GAME_CONFIG.backgroundMusic.tracks` in `index.html`.
+- MP3
+- WAV
+- OGG
+- M4A
+- AAC
+- FLAC
 
-Use only music you own or are licensed to play. Browsers and smart TVs require the first click or key press before background music can start.
+Upload or delete songs in this folder, then refresh the game. Tracks play in filename order and automatically continue from the last song back to the first.
+
+Use only music you own or are licensed to play. Browsers and smart TVs require the first click, key press, or music-button press before audio can begin.
