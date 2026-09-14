@@ -453,6 +453,28 @@
 
     .modal.show .result-card { transform: scale(1) rotate(0); }
 
+    .result-smile {
+      position: absolute;
+      z-index: 4;
+      top: clamp(15px, 2.2vh, 28px);
+      right: clamp(15px, 2vw, 28px);
+      width: clamp(58px, 7.5vw, 96px);
+      aspect-ratio: 1;
+      object-fit: contain;
+      border-radius: 50%;
+      pointer-events: none;
+      filter: drop-shadow(0 .7vh .5vh rgba(97,38,0,.24));
+      transform-origin: 50% 75%;
+      animation: smile-wiggle 1.35s ease-in-out infinite;
+    }
+
+    @keyframes smile-wiggle {
+      0%, 100% { transform: translateY(0) rotate(-7deg) scale(1); }
+      25% { transform: translateY(-.55vh) rotate(8deg) scale(1.04); }
+      50% { transform: translateY(.2vh) rotate(-5deg) scale(.98); }
+      75% { transform: translateY(-.4vh) rotate(7deg) scale(1.03); }
+    }
+
     .result-card::before {
       content: "";
       position: absolute;
@@ -581,6 +603,7 @@
 
   <div id="resultModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="resultTitle">
     <div class="result-card">
+      <img id="resultSmile" class="result-smile" alt="" aria-hidden="true">
       <div class="result-kicker">You Found</div>
       <div id="resultEmoji" class="result-emoji"></div>
       <img id="resultImage" class="result-image" alt="Prize">
@@ -1182,10 +1205,14 @@
 
       const logo = document.getElementById("brandLogo");
       const fallback = document.getElementById("brandFallback");
+      const resultSmile = document.getElementById("resultSmile");
       fallback.textContent = GAME_CONFIG.fallbackLogoText;
       logo.src = GAME_CONFIG.logoFile;
       logo.onload = () => { logo.style.display = "block"; fallback.style.display = "none"; };
       logo.onerror = () => { logo.style.display = "none"; fallback.style.display = "block"; };
+
+      resultSmile.src = GAME_CONFIG.smileFile;
+      resultSmile.onerror = () => { resultSmile.style.display = "none"; };
     }
 
     newRoundBtn.addEventListener("click", newRound);
