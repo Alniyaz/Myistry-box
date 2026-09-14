@@ -574,7 +574,8 @@
       <button id="newRoundBtn" class="control-btn" type="button">↻ New Round</button>
       <button id="showAllBtn" class="control-btn secondary" type="button" disabled>Show All</button>
       <button id="fullscreenBtn" class="control-btn secondary" type="button">⛶ Full Screen</button>
-      <button id="soundBtn" class="control-btn sound-btn secondary" type="button" title="Sound on" aria-label="Toggle sound">🔊</button>
+      <button id="musicBtn" class="control-btn sound-btn secondary" type="button" title="Background music on" aria-label="Toggle background music">🎵</button>
+      <button id="soundBtn" class="control-btn sound-btn secondary" type="button" title="Game sounds on" aria-label="Toggle game sounds">🔊</button>
     </footer>
   </div>
 
@@ -601,6 +602,11 @@
        PRIZE IMAGES (optional):
        Put an image beside this HTML file and enter its name in image.
        Leave image: "" to use the emoji.
+
+       AUDIO:
+       Background tracks: assets/audio/background-music/
+       Clap sound: assets/audio/clap/clap.wav
+       Add, remove, or reorder music using backgroundMusic.tracks below.
        ================================================================ */
     const GAME_CONFIG = {
       browserTabTitle: "30th Ariant Anniversary — Mystery Box",
@@ -612,6 +618,21 @@
       fallbackLogoText: "ARIANT",
       revealMessage: "Congratulations! Please collect your gift.",
       boxCount: 20,
+
+      backgroundMusic: {
+        enabled: true,
+        volume: 0.18,
+        tracks: [
+          "assets/audio/background-music/track-1.wav",
+          "assets/audio/background-music/track-2.wav",
+          "assets/audio/background-music/track-3.wav"
+        ]
+      },
+
+      clapSound: {
+        file: "assets/audio/clap/clap.wav",
+        volume: 0.95
+      },
 
       // These prize options repeat to fill all 20 boxes and are secretly shuffled every new round.
       prizes: [
@@ -634,6 +655,7 @@
     const newRoundBtn = document.getElementById("newRoundBtn");
     const showAllBtn = document.getElementById("showAllBtn");
     const fullscreenBtn = document.getElementById("fullscreenBtn");
+    const musicBtn = document.getElementById("musicBtn");
     const soundBtn = document.getElementById("soundBtn");
     const nextPlayerBtn = document.getElementById("nextPlayerBtn");
     const toastEl = document.getElementById("toast");
@@ -643,9 +665,17 @@
     let shuffledPrizes = [];
     let roundFinished = false;
     let soundEnabled = true;
+    let musicEnabled = GAME_CONFIG.backgroundMusic.enabled !== false;
     let confettiPieces = [];
     let confettiFrame = 0;
     let applauseSources = [];
+    let backgroundTrackIndex = -1;
+    let backgroundTrackFailures = 0;
+    let backgroundMusicStarted = false;
+    let backgroundDuckTimer = 0;
+
+    const backgroundAudio = new Audio();
+    const clapAudio = new Audio();
 
     function secureRandom() {
       if (window.crypto && window.crypto.getRandomValues) {
@@ -719,9 +749,9 @@
 
       const selected = cards[index];
       selected.classList.add("opening");
+      startBackgroundMusic();
       playOpenSound();
-      // Schedule applause from the original click so strict TV browsers allow it.
-      playApplauseSound(1.02);
+      playClapFile();
 
       window.setTimeout(() => {
         selected.classList.remove("opening");
@@ -806,6 +836,105 @@
       return audioContext.instance;
     }
 
+    function volumeValue(value, fallback) {
+      const number = Number(value);
+      return Number.isFinite(number) ? Math.max(0, Math.min(1, number)) : fallback;
+    }
+
+    function backgroundTracks() {
+      const music = GAME_CONFIG.backgroundMusic || {};
+      return Array.isArray(music.tracks) ? music.tracks.filter(Boolean) : [];
+    }
+
+    function normalBackgroundVolume() {
+      return volumeValue(GAME_CONFIG.backgroundMusic && GAME_CONFIG.backgroundMusic.volume, .18);
+    }
+
+    function setupFileAudio() {
+      const tracks = backgroundTracks();
+
+      backgroundAudio.preload = "auto";
+      backgroundAudio.volume = normalBackgroundVolume();
+      backgroundAudio.addEventListener("ended", () => {
+        backgroundTrackFailures = 0;
+        playNextBackgroundTrack();
+      });
+      backgroundAudio.addEventListener("error", () => {
+        if (!musicEnabled || !tracks.length) return;
+        backgroundTrackFailures += 1;
+        if (backgroundTrackFailures < tracks.length) {
+          window.setTimeout(playNextBackgroundTrack, 120);
+        } else {
+          backgroundMusicStarted = false;
+          showToast("Background music files could not be played");
+        }
+      });
+
+      if (tracks.length) {
+        backgroundTrackIndex = 0;
+        backgroundAudio.src = tracks[0];
+        backgroundAudio.load();
+      }
+
+      clapAudio.preload = "auto";
+      clapAudio.src = GAME_CONFIG.clapSound.file;
+      clapAudio.volume = volumeValue(GAME_CONFIG.clapSound.volume, .95);
+      clapAudio.load();
+      clapAudio.addEventListener("ended", restoreBackgroundVolume);
+
+      updateMusicButton();
+    }
+
+    function startBackgroundMusic() {
+      if (!musicEnabled || !backgroundTracks().length || !backgroundAudio.src) return;
+      if (!backgroundAudio.paused) {
+        backgroundMusicStarted = true;
+        return;
+      }
+
+      const playRequest = backgroundAudio.play();
+      if (playRequest && typeof playRequest.then === "function") {
+        playRequest
+          .then(() => {
+            backgroundMusicStarted = true;
+            backgroundTrackFailures = 0;
+          })
+          .catch(() => {
+            backgroundMusicStarted = false;
+          });
+      }
+    }
+
+    function playNextBackgroundTrack() {
+      const tracks = backgroundTracks();
+      if (!musicEnabled || !tracks.length) return;
+
+      backgroundTrackIndex = (backgroundTrackIndex + 1) % tracks.length;
+      backgroundAudio.src = tracks[backgroundTrackIndex];
+      backgroundAudio.volume = normalBackgroundVolume();
+      backgroundAudio.load();
+      backgroundMusicStarted = false;
+      startBackgroundMusic();
+    }
+
+    function restoreBackgroundVolume() {
+      clearTimeout(backgroundDuckTimer);
+      if (musicEnabled) backgroundAudio.volume = normalBackgroundVolume();
+    }
+
+    function duckBackgroundMusic(milliseconds = 4300) {
+      clearTimeout(backgroundDuckTimer);
+      if (!musicEnabled || backgroundAudio.paused) return;
+      backgroundAudio.volume = Math.max(.025, normalBackgroundVolume() * .22);
+      backgroundDuckTimer = window.setTimeout(restoreBackgroundVolume, milliseconds);
+    }
+
+    function updateMusicButton() {
+      musicBtn.textContent = musicEnabled ? "🎵" : "⏸";
+      musicBtn.title = musicEnabled ? "Background music on" : "Background music paused";
+      musicBtn.setAttribute("aria-label", musicBtn.title);
+    }
+
     function tone(frequency, start, duration, type = "sine", volume = .08) {
       const ac = audioContext();
       if (!ac) return;
@@ -831,16 +960,31 @@
     }
 
     function stopApplause() {
+      clapAudio.pause();
+      try { clapAudio.currentTime = 0; } catch (error) { /* file is still loading */ }
+
       applauseSources.forEach(source => {
         try { source.stop(); } catch (error) { /* source already finished */ }
       });
       applauseSources = [];
+      restoreBackgroundVolume();
+    }
+
+    function playClapFile() {
+      if (!soundEnabled) return;
+      stopApplause();
+      duckBackgroundMusic();
+
+      try { clapAudio.currentTime = 0; } catch (error) { /* file is still loading */ }
+      const playRequest = clapAudio.play();
+      if (playRequest && typeof playRequest.catch === "function") {
+        playRequest.catch(() => playApplauseSound(.8));
+      }
     }
 
     function playApplauseSound(delaySeconds = 0) {
       const ac = audioContext();
       if (!ac) return;
-      stopApplause();
 
       const applauseStart = ac.currentTime + Math.max(0, delaySeconds);
       const master = ac.createGain();
@@ -856,7 +1000,7 @@
       compressor.release.value = .22;
       master.connect(compressor).connect(ac.destination);
 
-      // Dozens of short, filtered noise bursts create a natural crowd-clap effect.
+      // Generated applause remains as a fallback if clap.wav cannot load.
       for (let group = 0; group < 19; group++) {
         const peopleInGroup = 4 + Math.floor(secureRandom() * 3);
         for (let person = 0; person < peopleInGroup; person++) {
@@ -969,13 +1113,31 @@
     nextPlayerBtn.addEventListener("click", newRound);
     showAllBtn.addEventListener("click", revealAll);
     fullscreenBtn.addEventListener("click", toggleFullscreen);
+    musicBtn.addEventListener("click", () => {
+      musicEnabled = !musicEnabled;
+      updateMusicButton();
+
+      if (musicEnabled) {
+        startBackgroundMusic();
+        showToast("Background music on");
+      } else {
+        backgroundAudio.pause();
+        backgroundMusicStarted = false;
+        showToast("Background music paused");
+      }
+    });
     soundBtn.addEventListener("click", () => {
       soundEnabled = !soundEnabled;
       soundBtn.textContent = soundEnabled ? "🔊" : "🔇";
-      soundBtn.title = soundEnabled ? "Sound on" : "Sound off";
+      soundBtn.title = soundEnabled ? "Game sounds on" : "Game sounds off";
+      soundBtn.setAttribute("aria-label", soundBtn.title);
       if (soundEnabled) playShuffleSound();
       else stopApplause();
     });
+
+    // Browser and smart-TV autoplay rules allow music after the first interaction.
+    document.addEventListener("pointerdown", startBackgroundMusic, { passive: true });
+    document.addEventListener("keydown", startBackgroundMusic);
 
     document.addEventListener("fullscreenchange", () => {
       fullscreenBtn.textContent = document.fullscreenElement ? "✕ Exit Full Screen" : "⛶ Full Screen";
@@ -998,6 +1160,7 @@
 
     window.addEventListener("resize", resizeCanvas);
     applyConfig();
+    setupFileAudio();
     newRound();
   </script>
 </body>
