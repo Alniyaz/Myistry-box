@@ -606,7 +606,7 @@
        AUDIO:
        Background tracks: assets/audio/background-music/
        Clap sound: assets/audio/clap/clap.wav
-       Add, remove, or reorder music using backgroundMusic.tracks below.
+       Every supported song in the background folder is found automatically.
        ================================================================ */
     const GAME_CONFIG = {
       browserTabTitle: "30th Ariant Anniversary — Mystery Box",
@@ -622,11 +622,8 @@
       backgroundMusic: {
         enabled: true,
         volume: 0.18,
-        tracks: [
-          "assets/audio/background-music/track-1.wav",
-          "assets/audio/background-music/track-2.wav",
-          "assets/audio/background-music/track-3.wav"
-        ]
+        folderApi: "https://api.github.com/repos/Alniyaz/Myistry-box/contents/assets/audio/background-music",
+        cacheKey: "mystery-box-background-tracks-v1"
       },
 
       clapSound: {
@@ -673,6 +670,10 @@
     let backgroundTrackFailures = 0;
     let backgroundMusicStarted = false;
     let backgroundDuckTimer = 0;
+    let discoveredBackgroundTracks = [];
+    let backgroundDiscoveryPromise = null;
+    let startMusicWhenReady = false;
+    let musicPromptShown = false;
 
     const backgroundAudio = new Audio();
     const clapAudio = new Audio();
@@ -842,17 +843,85 @@
     }
 
     function backgroundTracks() {
-      const music = GAME_CONFIG.backgroundMusic || {};
-      return Array.isArray(music.tracks) ? music.tracks.filter(Boolean) : [];
+      return discoveredBackgroundTracks;
     }
 
     function normalBackgroundVolume() {
       return volumeValue(GAME_CONFIG.backgroundMusic && GAME_CONFIG.backgroundMusic.volume, .18);
     }
 
-    function setupFileAudio() {
-      const tracks = backgroundTracks();
+    function cachedBackgroundTracks() {
+      try {
+        const cached = JSON.parse(localStorage.getItem(GAME_CONFIG.backgroundMusic.cacheKey) || "[]");
+        return Array.isArray(cached) ? cached.filter(Boolean) : [];
+      } catch (error) {
+        return [];
+      }
+    }
 
+    function cacheBackgroundTracks(tracks) {
+      try {
+        localStorage.setItem(GAME_CONFIG.backgroundMusic.cacheKey, JSON.stringify(tracks));
+      } catch (error) {
+        /* Storage can be disabled in some TV browsers. */
+      }
+    }
+
+    function useDiscoveredTracks(tracks) {
+      discoveredBackgroundTracks = tracks;
+      if (!tracks.length) return;
+
+      backgroundTrackIndex = 0;
+      backgroundAudio.src = tracks[0];
+      backgroundAudio.volume = normalBackgroundVolume();
+      backgroundAudio.load();
+
+      if (startMusicWhenReady && musicEnabled) startBackgroundMusic();
+    }
+
+    function discoverBackgroundTracks() {
+      if (backgroundDiscoveryPromise) return backgroundDiscoveryPromise;
+
+      backgroundDiscoveryPromise = fetch(GAME_CONFIG.backgroundMusic.folderApi, {
+        headers: { Accept: "application/vnd.github+json" },
+        cache: "no-cache"
+      })
+        .then(response => {
+          if (!response.ok) throw new Error("Unable to read the music folder");
+          return response.json();
+        })
+        .then(files => {
+          if (!Array.isArray(files)) throw new Error("Music folder response is invalid");
+
+          const tracks = files
+            .filter(file =>
+              file &&
+              file.type === "file" &&
+              file.download_url &&
+              /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(file.name || "")
+            )
+            .sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, {
+              numeric: true,
+              sensitivity: "base"
+            }))
+            .map(file => file.download_url);
+
+          if (!tracks.length) throw new Error("No supported songs found");
+          cacheBackgroundTracks(tracks);
+          useDiscoveredTracks(tracks);
+          return tracks;
+        })
+        .catch(() => {
+          const cached = cachedBackgroundTracks();
+          useDiscoveredTracks(cached);
+          if (!cached.length) showToast("Add songs to the background-music folder");
+          return cached;
+        });
+
+      return backgroundDiscoveryPromise;
+    }
+
+    function setupFileAudio() {
       backgroundAudio.preload = "auto";
       backgroundAudio.volume = normalBackgroundVolume();
       backgroundAudio.addEventListener("ended", () => {
@@ -860,7 +929,9 @@
         playNextBackgroundTrack();
       });
       backgroundAudio.addEventListener("error", () => {
+        const tracks = backgroundTracks();
         if (!musicEnabled || !tracks.length) return;
+
         backgroundTrackFailures += 1;
         if (backgroundTrackFailures < tracks.length) {
           window.setTimeout(playNextBackgroundTrack, 120);
@@ -870,12 +941,6 @@
         }
       });
 
-      if (tracks.length) {
-        backgroundTrackIndex = 0;
-        backgroundAudio.src = tracks[0];
-        backgroundAudio.load();
-      }
-
       clapAudio.preload = "auto";
       clapAudio.src = GAME_CONFIG.clapSound.file;
       clapAudio.volume = volumeValue(GAME_CONFIG.clapSound.volume, .95);
@@ -883,10 +948,19 @@
       clapAudio.addEventListener("ended", restoreBackgroundVolume);
 
       updateMusicButton();
+      discoverBackgroundTracks();
     }
 
     function startBackgroundMusic() {
-      if (!musicEnabled || !backgroundTracks().length || !backgroundAudio.src) return;
+      if (!musicEnabled) return;
+
+      const tracks = backgroundTracks();
+      if (!tracks.length || !backgroundAudio.src) {
+        startMusicWhenReady = true;
+        discoverBackgroundTracks();
+        return;
+      }
+
       if (!backgroundAudio.paused) {
         backgroundMusicStarted = true;
         return;
@@ -898,9 +972,14 @@
           .then(() => {
             backgroundMusicStarted = true;
             backgroundTrackFailures = 0;
+            musicPromptShown = false;
           })
           .catch(() => {
             backgroundMusicStarted = false;
+            if (!musicPromptShown) {
+              musicPromptShown = true;
+              showToast("Press the music button to start");
+            }
           });
       }
     }
